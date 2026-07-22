@@ -655,19 +655,39 @@ export default function WorkoutDashboard() {
         {/* HEADER */}
         <header className="px-5 pt-6 pb-4 border-b border-zinc-800/80 bg-[#0e0e11]/80 backdrop-blur sticky top-0 z-20">
           <div className="flex justify-between items-center mb-4">
-            <div className="flex items-center gap-2">
-              <div className="p-2 bg-indigo-600/10 rounded-xl border border-indigo-500/20">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" className="w-5 h-5 text-indigo-400 animate-pulse">
-                  <rect x="25" y="47" width="50" height="6" rx="3" fill="currentColor" opacity="0.6"/>
-                  <rect x="18" y="38" width="6" height="24" rx="2" fill="currentColor" opacity="0.8"/>
-                  <rect x="12" y="42" width="5" height="16" rx="2" fill="currentColor" opacity="0.5"/>
-                  <rect x="76" y="38" width="6" height="24" rx="2" fill="currentColor" opacity="0.8"/>
-                  <rect x="83" y="42" width="5" height="16" rx="2" fill="currentColor" opacity="0.5"/>
-                  <path d="M50,22 C41,22 37,29 37,36 C37,39 39,43 41,45 C40,46 39,48 39,50 C39,55 43,58 48,58 C49,58 49,58 50,58 C51,58 51,58 52,58 C57,58 61,55 61,50 C61,48 60,46 59,45 C61,43 63,39 63,36 C63,29 59,22 50,22 Z" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"/>
-                  <path d="M50,22 L50,58" fill="none" stroke="currentColor" strokeWidth="3" strokeDasharray="2 2"/>
-                  <path d="M42,32 C45,34 46,31 49,33 M58,32 C55,34 54,31 51,33 M42,40 C45,38 46,41 49,39 M58,40 C55,38 54,41 51,39 M44,48 C47,47 48,50 49,49 M56,48 C53,47 52,50 51,49" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"/>
-                </svg>
-              </div>
+            <div className="flex items-center gap-3">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" className="w-10 h-10 text-indigo-400 shrink-0 select-none">
+                {/* Haste do Halter passando por trás do cérebro */}
+                <path d="M12 44 L52 20" stroke="currentColor" strokeWidth="4.5" strokeLinecap="round" className="text-zinc-500" />
+                
+                {/* Anilhas da Esquerda */}
+                <rect x="6" y="32" width="6" height="20" rx="2" transform="rotate(-31 9 42)" fill="currentColor" className="text-zinc-400" />
+                <rect x="2" y="30" width="4" height="24" rx="1.5" transform="rotate(-31 4 42)" fill="currentColor" className="text-indigo-600" />
+                
+                {/* Anilhas da Direita */}
+                <rect x="52" y="12" width="6" height="20" rx="2" transform="rotate(-31 55 22)" fill="currentColor" className="text-zinc-400" />
+                <rect x="58" y="10" width="4" height="24" rx="1.5" transform="rotate(-31 60 22)" fill="currentColor" className="text-indigo-600" />
+
+                {/* Cérebro Lado Esquerdo (Tecnologia/Intelecto) */}
+                <path d="M32 10 C25 10 19 16 19 24 C19 28 21 31 23 33 C22 35 22 38 24 40 C27 43 30 42 32 42 Z" fill="currentColor" className="text-indigo-400" />
+                      
+                {/* Cérebro Lado Direito (Ação/Força) */}
+                <path d="M32 10 C39 10 45 16 45 24 C45 28 43 31 41 33 C42 35 42 38 40 40 C37 43 34 42 32 42 Z" fill="currentColor" className="text-lime-400" />
+
+                {/* Linhas de Conexão Neural (Efeito Circuitos) */}
+                <path d="M32 16 L25 21" stroke="#0e0e11" strokeWidth="2.5" strokeLinecap="round" />
+                <path d="M32 23 L22 25" stroke="#0e0e11" strokeWidth="2.5" strokeLinecap="round" />
+                <path d="M32 30 L26 33" stroke="#0e0e11" strokeWidth="2.5" strokeLinecap="round" />
+                <path d="M32 20 L39 23" stroke="#0e0e11" strokeWidth="2.5" strokeLinecap="round" />
+                <path d="M32 28 L41 31" stroke="#0e0e11" strokeWidth="2.5" strokeLinecap="round" />
+
+                {/* Nós Neural (Sinapses) */}
+                <circle cx="25" cy="21" r="1.5" fill="#0e0e11" />
+                <circle cx="22" cy="25" r="1.5" fill="#0e0e11" />
+                <circle cx="26" cy="33" r="1.5" fill="#0e0e11" />
+                <circle cx="39" cy="23" r="1.5" fill="#0e0e11" />
+                <circle cx="41" cy="31" r="1.5" fill="#0e0e11" />
+              </svg>
               <div>
                 <h1 className="text-xl font-bold tracking-tight text-white flex items-center gap-1.5">
                   SmartLift
