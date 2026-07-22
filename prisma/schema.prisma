@@ -1,0 +1,59 @@
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id              String    @id @default(cuid())
+  name            String
+  email           String    @unique
+  workoutValidity DateTime? // Validade do treino atual
+  avatar          String?   // Foto de perfil em Base64
+  workouts        Workout[]
+  logs            Log[]
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model Workout {
+  id          String     @id @default(cuid())
+  name        String     // Ex: "Treino A: Push"
+  description String?
+  userId      String
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exercises   Exercise[]
+  logs        Log[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+model Exercise {
+  id           String    @id @default(cuid())
+  name         String
+  muscleGroup  String
+  safetyTips   String    // Dicas de segurança articular
+  alternatives String    // Aparelhos alternativos caso ocupado
+  settings     String?   // Regulagem do aparelho (ex: "Banco: 3, Encosto: 2")
+  restInterval Int       @default(60) // Tempo de descanso em segundos
+  workouts     Workout[]
+  logs         Log[]
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+model Log {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workoutId  String?
+  workout    Workout? @relation(fields: [workoutId], references: [id], onDelete: SetNull)
+  exerciseId String
+  exercise   Exercise @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+  weight     Float    // Carga utilizada
+  reps       Int      // Repetições executadas
+  setNumber  Int      // Número da série (1, 2, 3, etc.)
+  createdAt  DateTime @default(now())
+}
