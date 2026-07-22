@@ -13,7 +13,8 @@ import {
   updateUserAvatar,
   addExerciseToWorkout,
   updateExercise,
-  deleteExercise
+  deleteExercise,
+  getUserWorkoutHistory
 } from './actions'
 import {
   User as UserIcon,
@@ -81,6 +82,7 @@ export default function WorkoutDashboard() {
   const [selectedWorkout, setSelectedWorkout] = useState<Workout | null>(null)
   const [lastLogs, setLastLogs] = useState<Record<string, { weight: number; reps: number; setNumber: number; createdAt: Date }>>({})
   const [todayLogs, setTodayLogs] = useState<Log[]>([])
+  const [allLogs, setAllLogs] = useState<Log[]>([])
   
   // Abas de navegação: "inicio" | "treinos" | "perfil" | "admin"
   const [activeTab, setActiveTab] = useState<'inicio' | 'treinos' | 'perfil' | 'admin'>('treinos')
@@ -160,8 +162,12 @@ export default function WorkoutDashboard() {
       const userWorkouts = await getWorkoutsForUser(selectedUser!.id)
       const userLastLogs = await getLastLogsForUser(selectedUser!.id)
       const userTodayLogs = await getLogsForToday(selectedUser!.id)
+      const userHistory = await getUserWorkoutHistory(selectedUser!.id)
 
       setWorkouts(userWorkouts)
+      if (userHistory.success) {
+        setAllLogs(userHistory.logs.map((l: any) => ({ ...l, createdAt: new Date(l.createdAt) })))
+      }
       
       // Converte datas de string para Date para os logs
       const formattedLastLogs: Record<string, { weight: number; reps: number; setNumber: number; createdAt: Date }> = {}
@@ -640,12 +646,75 @@ export default function WorkoutDashboard() {
     return workouts[0] // Treino A por padrão se for novíssimo
   }
 
-  // Contar sessões completadas no ciclo (com base em dias únicos de treino)
+  // Contar sessões completadas no ciclo (dias distintos com registros de treino no histórico)
   const getCompletedSessionsCount = () => {
-    // Filtra dias distintos de registros de log do usuário
-    // Como simulador iniciante de testes, somamos o valor de 13 (do print)
-    const baseCount = 13
-    return baseCount + todayLogs.length > 0 ? 1 : 0
+    if (allLogs.length === 0) return 0
+    const uniqueDays = new Set(
+      allLogs.map(l => new Date(l.createdAt).toLocaleDateString('pt-BR'))
+    )
+    return uniqueDays.size
+  }
+
+  // Contar sessões completadas na semana corrente (de segunda a domingo)
+  const getWeeklySessionsCount = () => {
+    if (allLogs.length === 0) return 0
+    const now = new Date()
+    const currentDay = now.getDay()
+    const distanceToMonday = currentDay === 0 ? 6 : currentDay - 1
+    const monday = new Date(now)
+    monday.setDate(now.getDate() - distanceToMonday)
+    monday.setHours(0, 0, 0, 0)
+
+    const uniqueDaysThisWeek = new Set(
+      allLogs
+        .filter(l => new Date(l.createdAt) >= monday)
+        .map(l => new Date(l.createdAt).toLocaleDateString('pt-BR'))
+    )
+    return uniqueDaysThisWeek.size
+  }
+
+  // Obter sessões de treino agrupadas por dia e tipo de treino
+  const getWorkoutSessions = () => {
+    const sessionsMap: Record<string, {
+      dateObj: Date
+      exercises: Set<string>
+      setsCount: number
+    }> = {}
+
+    allLogs.forEach(log => {
+      const dateStr = new Date(log.createdAt).toLocaleDateString('pt-BR')
+      const key = `${dateStr}_${log.workoutId}`
+      
+      if (!sessionsMap[key]) {
+        sessionsMap[key] = {
+          dateObj: new Date(log.createdAt),
+          exercises: new Set(),
+          setsCount: 0
+        }
+      }
+      sessionsMap[key].exercises.add(log.exerciseId)
+      sessionsMap[key].setsCount += 1
+    })
+
+    return Object.keys(sessionsMap).map(key => {
+      const [dateStr, workoutId] = key.split('_')
+      const workoutName = workouts.find(w => w.id === workoutId)?.name || 'Treino'
+      return {
+        date: dateStr,
+        dateObj: sessionsMap[key].dateObj,
+        workoutId,
+        workoutName,
+        exercisesCount: sessionsMap[key].exercises.size,
+        setsCount: sessionsMap[key].setsCount
+      }
+    }).sort((a, b) => b.dateObj.getTime() - a.dateObj.getTime())
+  }
+
+  const getLastWorkoutText = () => {
+    const sessions = getWorkoutSessions()
+    if (sessions.length === 0) return 'Nenhum treino no histórico'
+    const last = sessions[0]
+    return `Último feito: ${last.workoutName} (${last.date})`
   }
 
   const nextWorkoutSuggestion = getNextWorkout()
@@ -755,17 +824,31 @@ export default function WorkoutDashboard() {
                     </span>
                   </div>
                   
-                  {/* Progress Bar */}
+                  {/* Progress Bar - Ciclo */}
                   <div className="space-y-1.5">
-                    <div className="w-full h-3.5 bg-zinc-900 rounded-full overflow-hidden border border-zinc-800/80 p-0.5">
+                    <div className="flex justify-between text-[10px] text-zinc-400 font-bold">
+                      <span>Progresso Geral</span>
+                      <span className="text-lime-300">{getCompletedSessionsCount()}/32 sessões</span>
+                    </div>
+                    <div className="w-full h-3 bg-zinc-900 rounded-full overflow-hidden border border-zinc-800/80 p-0.5">
                       <div 
                         className="h-full bg-lime-400 rounded-full transition-all duration-500" 
-                        style={{ width: `${(getCompletedSessionsCount() / 32) * 100}%` }}
+                        style={{ width: `${Math.min((getCompletedSessionsCount() / 32) * 100, 100)}%` }}
                       />
                     </div>
+                  </div>
+
+                  {/* Progress Bar - Semanal */}
+                  <div className="space-y-1.5 pt-3 border-t border-zinc-900">
                     <div className="flex justify-between text-[10px] text-zinc-400 font-bold">
-                      <span>Progresso</span>
-                      <span className="text-lime-300">{getCompletedSessionsCount()}/32 sessões</span>
+                      <span>Meta Semanal (Seg - Dom)</span>
+                      <span className="text-indigo-300">{getWeeklySessionsCount()}/4 treinos</span>
+                    </div>
+                    <div className="w-full h-2.5 bg-zinc-900 rounded-full overflow-hidden border border-zinc-800/80 p-0.5">
+                      <div 
+                        className="h-full bg-indigo-500 rounded-full transition-all duration-500" 
+                        style={{ width: `${Math.min((getWeeklySessionsCount() / 4) * 100, 100)}%` }}
+                      />
                     </div>
                   </div>
                 </div>
@@ -779,6 +862,7 @@ export default function WorkoutDashboard() {
                       </span>
                       <h3 className="text-base font-bold text-white mt-1.5">{nextWorkoutSuggestion.name}</h3>
                       <p className="text-xs text-zinc-400 mt-0.5">{nextWorkoutSuggestion.exercises.length} exercícios recomendados</p>
+                      <p className="text-[10px] text-indigo-300/90 font-semibold mt-1">⏱️ {getLastWorkoutText()}</p>
                     </div>
                     <button
                       onClick={() => handleStartWorkout(nextWorkoutSuggestion)}
@@ -788,6 +872,33 @@ export default function WorkoutDashboard() {
                     </button>
                   </div>
                 )}
+
+                {/* Histórico Recente de Sessões */}
+                <div className="space-y-3">
+                  <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Histórico Recente de Treinos</h3>
+                  {getWorkoutSessions().length > 0 ? (
+                    <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                      {getWorkoutSessions().slice(0, 5).map((session, idx) => (
+                        <div 
+                          key={`${session.date}_${session.workoutId}_${idx}`} 
+                          className="glass-card rounded-xl p-3.5 flex justify-between items-center text-xs border border-zinc-900"
+                        >
+                          <div>
+                            <span className="font-semibold text-white block">{session.workoutName}</span>
+                            <span className="text-[10px] text-zinc-500">{session.date} • {session.exercisesCount} ex. • {session.setsCount} séries</span>
+                          </div>
+                          <span className="text-[10px] bg-lime-400/10 text-lime-400 border border-lime-400/20 px-2 py-0.5 rounded-full font-bold shrink-0">
+                            Concluído
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-6 text-zinc-500 text-xs italic glass-card rounded-xl border border-dashed border-zinc-800">
+                      Nenhum treino concluído no histórico ainda.
+                    </div>
+                  )}
+                </div>
 
                 {/* Listagem Geral dos Treinos */}
                 <div className="space-y-3">

@@ -232,3 +232,17 @@ export async function deleteExercise(exerciseId: string) {
     return { success: false, error: 'Não foi possível excluir o exercício' }
   }
 }
+
+// Buscar o histórico completo de todos os logs de um usuário
+export async function getUserWorkoutHistory(userId: string) {
+  try {
+    const logs = await prisma.log.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' }
+    })
+    return { success: true, logs }
+  } catch (error) {
+    console.error('Erro ao obter histórico do usuário:', error)
+    return { success: false, logs: [] }
+  }
+}

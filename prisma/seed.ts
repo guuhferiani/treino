@@ -328,24 +328,22 @@ async function main() {
     }
   ]
 
-  // Criar todos os exercícios no banco usando Promise.all para tipagem automática
-  const exercisesA = await Promise.all(
-    treinoAExercisesData.map((ex) => prisma.exercise.create({ data: ex }))
-  )
-  const exercisesB = await Promise.all(
-    treinoBExercisesData.map((ex) => prisma.exercise.create({ data: ex }))
-  )
-  const exercisesC = await Promise.all(
-    treinoCExercisesData.map((ex) => prisma.exercise.create({ data: ex }))
-  )
-  const exercisesD = await Promise.all(
-    treinoDExercisesData.map((ex) => prisma.exercise.create({ data: ex }))
-  )
-
-  console.log('Biblioteca de exercícios criada.')
-
-  // Helper para criar treinos A, B, C e D para um usuário
+  // Helper para criar treinos A, B, C e D para um usuário com seus próprios exercícios independentes
   const assignWorkouts = async (userId: string, userName: string) => {
+    // Criar cópias independentes dos exercícios para este usuário
+    const exercisesA = await Promise.all(
+      treinoAExercisesData.map((ex) => prisma.exercise.create({ data: ex }))
+    )
+    const exercisesB = await Promise.all(
+      treinoBExercisesData.map((ex) => prisma.exercise.create({ data: ex }))
+    )
+    const exercisesC = await Promise.all(
+      treinoCExercisesData.map((ex) => prisma.exercise.create({ data: ex }))
+    )
+    const exercisesD = await Promise.all(
+      treinoDExercisesData.map((ex) => prisma.exercise.create({ data: ex }))
+    )
+
     // Treino A: Peito/triceps/ombro
     await prisma.workout.create({
       data: {
@@ -394,7 +392,7 @@ async function main() {
       },
     })
 
-    console.log(`Treinos A, B, C e D associados a ${userName}.`)
+    console.log(`Treinos A, B, C e D com exercícios exclusivos criados para ${userName}.`)
   }
 
   await assignWorkouts(gustavo.id, gustavo.name)
