@@ -10,7 +10,10 @@ import {
   saveSetLog,
   deleteSetLog,
   updateUserValidity,
-  updateUserAvatar
+  updateUserAvatar,
+  addExerciseToWorkout,
+  updateExercise,
+  deleteExercise
 } from './actions'
 import {
   User as UserIcon,
@@ -79,8 +82,8 @@ export default function WorkoutDashboard() {
   const [lastLogs, setLastLogs] = useState<Record<string, { weight: number; reps: number; setNumber: number; createdAt: Date }>>({})
   const [todayLogs, setTodayLogs] = useState<Log[]>([])
   
-  // Abas de navegação: "inicio" | "treinos" | "perfil"
-  const [activeTab, setActiveTab] = useState<'inicio' | 'treinos' | 'perfil'>('treinos')
+  // Abas de navegação: "inicio" | "treinos" | "perfil" | "admin"
+  const [activeTab, setActiveTab] = useState<'inicio' | 'treinos' | 'perfil' | 'admin'>('treinos')
   
   // Controle de Treino Ativo (Modo Execução)
   const [activeWorkout, setActiveWorkout] = useState<Workout | null>(null)
@@ -91,6 +94,20 @@ export default function WorkoutDashboard() {
   const [timerSeconds, setTimerSeconds] = useState<number | null>(null)
   const [timerMax, setTimerMax] = useState<number>(60)
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Estados para Gerenciador de Treinos (Admin)
+  const [selectedAdminWorkout, setSelectedAdminWorkout] = useState<Workout | null>(null)
+  const [editingExercise, setEditingExercise] = useState<Exercise | null>(null) // null = criar
+  const [showExerciseForm, setShowExerciseForm] = useState<boolean>(false)
+  const [exerciseFormState, setExerciseFormState] = useState({
+    name: '',
+    muscleGroup: '',
+    safetyTips: '',
+    alternatives: '',
+    settings: '',
+    restInterval: 60
+  })
+  const [savingExercise, setSavingExercise] = useState<boolean>(false)
 
   // Estados de UI
   const [loading, setLoading] = useState(true)
@@ -253,6 +270,125 @@ export default function WorkoutDashboard() {
       }
       setLoading(false)
     }
+  }
+
+  // Salvar Exercício (Adicionar ou Editar)
+  const handleSaveExercise = async () => {
+    if (!selectedAdminWorkout) return
+    if (!exerciseFormState.name || !exerciseFormState.muscleGroup) {
+      alert('Nome e Grupo Muscular são obrigatórios!')
+      return
+    }
+
+    setSavingExercise(true)
+    
+    if (editingExercise) {
+      // Modo Edição
+      const result = await updateExercise(editingExercise.id, {
+        name: exerciseFormState.name,
+        muscleGroup: exerciseFormState.muscleGroup,
+        safetyTips: exerciseFormState.safetyTips,
+        alternatives: exerciseFormState.alternatives,
+        settings: exerciseFormState.settings || null,
+        restInterval: exerciseFormState.restInterval
+      })
+      if (result.success && result.exercise) {
+        const updatedEx = result.exercise as Exercise
+        setWorkouts(prev => prev.map(w => ({
+          ...w,
+          exercises: w.exercises.map(e => e.id === updatedEx.id ? updatedEx : e)
+        })))
+        if (selectedAdminWorkout) {
+          setSelectedAdminWorkout(prev => prev ? {
+            ...prev,
+            exercises: prev.exercises.map(e => e.id === updatedEx.id ? updatedEx : e)
+          } : null)
+        }
+        setShowExerciseForm(false)
+        setEditingExercise(null)
+        alert('Exercício atualizado com sucesso! 👍')
+      } else {
+        alert('Erro ao atualizar exercício.')
+      }
+    } else {
+      // Modo Criação
+      const result = await addExerciseToWorkout(selectedAdminWorkout.id, {
+        name: exerciseFormState.name,
+        muscleGroup: exerciseFormState.muscleGroup,
+        safetyTips: exerciseFormState.safetyTips,
+        alternatives: exerciseFormState.alternatives,
+        settings: exerciseFormState.settings || null,
+        restInterval: exerciseFormState.restInterval
+      })
+      if (result.success && result.exercise) {
+        const newEx = result.exercise as Exercise
+        setWorkouts(prev => prev.map(w => w.id === selectedAdminWorkout.id ? {
+          ...w,
+          exercises: [...w.exercises, newEx].sort((a, b) => a.name.localeCompare(b.name))
+        } : w))
+        setSelectedAdminWorkout(prev => prev ? {
+          ...prev,
+          exercises: [...prev.exercises, newEx].sort((a, b) => a.name.localeCompare(b.name))
+        } : null)
+        setShowExerciseForm(false)
+        alert('Exercício adicionado com sucesso! 🎉')
+      } else {
+        alert('Erro ao adicionar exercício.')
+      }
+    }
+    setSavingExercise(false)
+  }
+
+  // Deletar Exercício
+  const handleDeleteExercise = async (exerciseId: string) => {
+    if (!confirm('Deseja realmente excluir este exercício? Isso apagará também todo o histórico de cargas gravado nele.')) return
+    
+    setLoading(true)
+    const result = await deleteExercise(exerciseId)
+    if (result.success) {
+      setWorkouts(prev => prev.map(w => ({
+        ...w,
+        exercises: w.exercises.filter(e => e.id !== exerciseId)
+      })))
+      if (selectedAdminWorkout) {
+        setSelectedAdminWorkout(prev => prev ? {
+          ...prev,
+          exercises: prev.exercises.filter(e => e.id !== exerciseId)
+        } : null)
+      }
+      alert('Exercício excluído! 👍')
+    } else {
+      alert('Erro ao excluir exercício.')
+    }
+    setLoading(false)
+  }
+
+  // Iniciar Formulário para Edição
+  const startEditExercise = (ex: Exercise) => {
+    setEditingExercise(ex)
+    setExerciseFormState({
+      name: ex.name,
+      muscleGroup: ex.muscleGroup,
+      safetyTips: ex.safetyTips,
+      alternatives: ex.alternatives,
+      settings: ex.settings || '',
+      restInterval: ex.restInterval
+    })
+    setShowExerciseForm(true)
+  }
+
+  // Iniciar Formulário para Criação
+  const startCreateExercise = () => {
+    setEditingExercise(null)
+    setExerciseFormState({
+      name: '',
+      muscleGroup: '',
+      safetyTips: '',
+      alternatives: '',
+      settings: '',
+      restInterval: 60
+    })
+    setShowExerciseForm(true)
   }
 
   // Inicializar inputs de carga e reps
@@ -1071,6 +1207,23 @@ export default function WorkoutDashboard() {
                   </div>
                 </div>
 
+                {/* Botão de Ir para o Gerenciador de Treinos (Admin) */}
+                <button
+                  onClick={() => {
+                    setActiveTab('admin')
+                    if (workouts.length > 0) {
+                      setSelectedAdminWorkout(workouts[0])
+                    }
+                  }}
+                  className="w-full flex items-center justify-between p-4 rounded-2xl bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-300 border border-indigo-500/20 font-bold text-xs transition-all shadow-md shrink-0"
+                >
+                  <div className="flex items-center gap-2">
+                    <Sliders className="w-4 h-4 text-indigo-400" />
+                    <span>Gerenciar Fichas de Treino (Admin)</span>
+                  </div>
+                  <span>→</span>
+                </button>
+
                 {/* Alterar Foto de Perfil (Manual Upload) */}
                 <div className="glass-card rounded-2xl p-5 space-y-4">
                   <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider block">Foto de Perfil</span>
@@ -1182,6 +1335,230 @@ export default function WorkoutDashboard() {
                     &quot;Como vocês começaram a treinar há pouco tempo, o foco principal deve ser a <strong>técnica de execução e estabilidade articular</strong>, não a quantidade de carga. Utilize os controles de regulagem e siga à risca as dicas de segurança amarela de cada card.&quot;
                   </p>
                 </div>
+              </div>
+            )}
+
+            {/* CONTEÚDO DA ABA: GERENCIADOR (ADMIN) */}
+            {activeTab === 'admin' && (
+              <div className="flex-1 flex flex-col overflow-hidden animate-slide-down">
+                
+                {/* Cabeçalho Admin */}
+                <div className="px-5 py-3.5 bg-zinc-900/30 border-b border-zinc-800/80 flex items-center justify-between shrink-0">
+                  <div className="flex items-center gap-2">
+                    <button 
+                      onClick={() => {
+                        if (showExerciseForm) {
+                          setShowExerciseForm(false)
+                        } else {
+                          setActiveTab('perfil')
+                        }
+                      }}
+                      className="text-xs text-zinc-400 hover:text-white flex items-center gap-1 py-1 pr-2 border-r border-zinc-800"
+                    >
+                      ← Voltar
+                    </button>
+                    <div>
+                      <h2 className="text-sm font-extrabold text-white leading-tight">
+                        {showExerciseForm 
+                          ? editingExercise 
+                            ? 'Editar Exercício' 
+                            : 'Novo Exercício' 
+                          : 'Gerenciador de Treinos'}
+                      </h2>
+                      <p className="text-[10px] text-zinc-500">
+                        {showExerciseForm ? selectedAdminWorkout?.name : 'Personalize sua rotina'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* FORMULÁRIO DE CADASTRO/EDIÇÃO */}
+                {showExerciseForm ? (
+                  <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+                    {/* Nome do Exercício */}
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">Nome do Exercício *</label>
+                      <input
+                        type="text"
+                        placeholder="Ex: Supino Reto na Máquina"
+                        value={exerciseFormState.name}
+                        onChange={(e) => setExerciseFormState(prev => ({ ...prev, name: e.target.value }))}
+                        className="w-full bg-[#09090b] border border-zinc-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+
+                    {/* Grupo Muscular */}
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">Grupo Muscular *</label>
+                      <input
+                        type="text"
+                        placeholder="Ex: Peitoral, Pernas, Ombros..."
+                        value={exerciseFormState.muscleGroup}
+                        onChange={(e) => setExerciseFormState(prev => ({ ...prev, muscleGroup: e.target.value }))}
+                        className="w-full bg-[#09090b] border border-zinc-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+
+                    {/* Regulagem Física */}
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">Regulagem do Aparelho (Banco/Apoio)</label>
+                      <input
+                        type="text"
+                        placeholder="Ex: Banco: Altura 4, Encosto: Nível 3"
+                        value={exerciseFormState.settings}
+                        onChange={(e) => setExerciseFormState(prev => ({ ...prev, settings: e.target.value }))}
+                        className="w-full bg-[#09090b] border border-zinc-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+
+                    {/* Tempo de Descanso */}
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">Tempo de Descanso (Segundos)</label>
+                      <input
+                        type="number"
+                        placeholder="Ex: 60, 90, 120"
+                        value={exerciseFormState.restInterval}
+                        onChange={(e) => setExerciseFormState(prev => ({ ...prev, restInterval: parseInt(e.target.value) || 60 }))}
+                        className="w-full bg-[#09090b] border border-zinc-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+
+                    {/* Dica de Segurança */}
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">Dica de Segurança Articular</label>
+                      <textarea
+                        rows={3}
+                        placeholder="Ex: Mantenha os cotovelos ligeiramente abaixo da linha do ombro para proteger a articulação..."
+                        value={exerciseFormState.safetyTips}
+                        onChange={(e) => setExerciseFormState(prev => ({ ...prev, safetyTips: e.target.value }))}
+                        className="w-full bg-[#09090b] border border-zinc-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500 resize-none"
+                      />
+                    </div>
+
+                    {/* Aparelhos Alternativos */}
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">Aparelhos Substitutos (Caso Ocupado)</label>
+                      <textarea
+                        rows={2}
+                        placeholder="Ex: Supino inclinado com halteres ou Pec Deck."
+                        value={exerciseFormState.alternatives}
+                        onChange={(e) => setExerciseFormState(prev => ({ ...prev, alternatives: e.target.value }))}
+                        className="w-full bg-[#09090b] border border-zinc-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500 resize-none"
+                      />
+                    </div>
+
+                    {/* Botões de Ação */}
+                    <div className="flex gap-3 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowExerciseForm(false)}
+                        className="flex-1 py-3 rounded-xl border border-zinc-800 text-zinc-400 font-bold text-xs hover:bg-zinc-900 hover:text-white transition-all"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        disabled={savingExercise}
+                        onClick={handleSaveExercise}
+                        className="flex-1 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs transition-all shadow-md flex items-center justify-center gap-2"
+                      >
+                        {savingExercise ? (
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                        ) : (
+                          'Salvar Exercício'
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  // LISTA DE EXERCÍCIOS DO TREINO
+                  <div className="flex-1 flex flex-col overflow-hidden">
+                    {/* Seletor do Treino (A, B, C, D) */}
+                    <div className="px-4 py-2.5 bg-zinc-950/40 border-b border-zinc-900 flex gap-2 overflow-x-auto shrink-0 scrollbar-none">
+                      {workouts.map((w) => {
+                        const isSelected = selectedAdminWorkout?.id === w.id
+                        const letter = w.name.includes('Treino ') ? w.name.split('Treino ')[1][0] : w.name[0]
+                        return (
+                          <button
+                            key={w.id}
+                            onClick={() => setSelectedAdminWorkout(w)}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all shrink-0 ${
+                              isSelected
+                                ? 'bg-indigo-600 border-indigo-500 text-white'
+                                : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                            }`}
+                          >
+                            Treino {letter}
+                          </button>
+                        )
+                      })}
+                    </div>
+
+                    {/* Lista dos Exercícios */}
+                    <div className="flex-1 overflow-y-auto px-4 py-3.5 space-y-2">
+                      <div className="flex justify-between items-center mb-2 px-1 text-xs">
+                        <span className="text-zinc-500 font-semibold">{selectedAdminWorkout?.name}</span>
+                        <span className="text-zinc-500 font-bold">{selectedAdminWorkout?.exercises.length || 0} exercícios</span>
+                      </div>
+
+                      {selectedAdminWorkout?.exercises.map((ex, index) => (
+                        <div 
+                          key={ex.id}
+                          className="glass-card rounded-xl p-3.5 flex items-center justify-between border border-zinc-900 hover:border-zinc-800 transition-all"
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <span className="text-xs font-bold text-zinc-500 shrink-0 w-5">
+                              #{index + 1}
+                            </span>
+                            <div className="min-w-0">
+                              <span className="text-[9px] font-bold text-indigo-400 uppercase tracking-wider block">
+                                {ex.muscleGroup}
+                              </span>
+                              <span className="text-xs font-bold text-white block truncate">
+                                {ex.name}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Ações (Editar e Deletar) */}
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              onClick={() => startEditExercise(ex)}
+                              className="p-2 rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white transition-all"
+                              title="Editar Exercício"
+                            >
+                              <Sliders className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteExercise(ex.id)}
+                              className="p-2 rounded-lg bg-red-950/20 border border-red-900/20 text-red-400 hover:bg-red-950/40 transition-all"
+                              title="Excluir Exercício"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+
+                      {selectedAdminWorkout?.exercises.length === 0 && (
+                        <div className="text-center py-12 text-zinc-600 text-xs italic">
+                          Nenhum exercício cadastrado nesta rotina.
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Botão Inferior de Adicionar Exercício */}
+                    <div className="p-4 border-t border-zinc-900 bg-zinc-950/60 shrink-0">
+                      <button
+                        onClick={startCreateExercise}
+                        className="w-full py-3.5 rounded-xl bg-lime-400 hover:bg-lime-300 text-black font-bold text-xs transition-all shadow-md flex items-center justify-center gap-2"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>Adicionar Novo Exercício</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </>

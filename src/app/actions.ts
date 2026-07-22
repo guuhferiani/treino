@@ -154,3 +154,81 @@ export async function updateUserAvatar(userId: string, avatarBase64: string | nu
     return { success: false, error: 'Não foi possível atualizar a foto de perfil' }
   }
 }
+
+// Adicionar um novo exercício a um treino
+export async function addExerciseToWorkout(workoutId: string, data: {
+  name: string
+  muscleGroup: string
+  safetyTips: string
+  alternatives: string
+  settings: string | null
+  restInterval: number
+}) {
+  try {
+    const newExercise = await prisma.exercise.create({
+      data: {
+        name: data.name,
+        muscleGroup: data.muscleGroup,
+        safetyTips: data.safetyTips,
+        alternatives: data.alternatives,
+        settings: data.settings,
+        restInterval: data.restInterval,
+        workouts: {
+          connect: { id: workoutId }
+        }
+      }
+    })
+    revalidatePath('/')
+    return { success: true, exercise: newExercise }
+  } catch (error) {
+    console.error('Erro ao adicionar exercício ao treino:', error)
+    return { success: false, error: 'Não foi possível adicionar o exercício' }
+  }
+}
+
+// Atualizar informações de um exercício existente
+export async function updateExercise(exerciseId: string, data: {
+  name: string
+  muscleGroup: string
+  safetyTips: string
+  alternatives: string
+  settings: string | null
+  restInterval: number
+}) {
+  try {
+    const updated = await prisma.exercise.update({
+      where: { id: exerciseId },
+      data: {
+        name: data.name,
+        muscleGroup: data.muscleGroup,
+        safetyTips: data.safetyTips,
+        alternatives: data.alternatives,
+        settings: data.settings,
+        restInterval: data.restInterval
+      }
+    })
+    revalidatePath('/')
+    return { success: true, exercise: updated }
+  } catch (error) {
+    console.error('Erro ao atualizar exercício:', error)
+    return { success: false, error: 'Não foi possível atualizar o exercício' }
+  }
+}
+
+// Excluir um exercício e seus logs vinculados
+export async function deleteExercise(exerciseId: string) {
+  try {
+    // Exclui logs desse exercício primeiro para manter integridade referencial
+    await prisma.log.deleteMany({
+      where: { exerciseId }
+    })
+    const deleted = await prisma.exercise.delete({
+      where: { id: exerciseId }
+    })
+    revalidatePath('/')
+    return { success: true, exercise: deleted }
+  } catch (error) {
+    console.error('Erro ao excluir exercício:', error)
+    return { success: false, error: 'Não foi possível excluir o exercício' }
+  }
+}
