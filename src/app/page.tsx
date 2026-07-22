@@ -14,7 +14,9 @@ import {
   addExerciseToWorkout,
   updateExercise,
   deleteExercise,
-  getUserWorkoutHistory
+  getUserWorkoutHistory,
+  updateWorkoutExerciseOrder,
+  askAICoach
 } from './actions'
 import {
   User as UserIcon,
@@ -36,7 +38,8 @@ import {
   RotateCcw,
   Volume2,
   Sliders,
-  Maximize2
+  Maximize2,
+  GripVertical
 } from 'lucide-react'
 
 interface User {
@@ -62,6 +65,7 @@ interface Workout {
   name: string
   description: string | null
   exercises: Exercise[]
+  exerciseOrder?: string | null
 }
 
 interface Log {
@@ -100,6 +104,8 @@ export default function WorkoutDashboard() {
   // Estados para Gerenciador de Treinos (Admin)
   const [selectedAdminWorkout, setSelectedAdminWorkout] = useState<Workout | null>(null)
   const [editingExercise, setEditingExercise] = useState<Exercise | null>(null) // null = criar
+  const [draggedExerciseId, setDraggedExerciseId] = useState<string | null>(null)
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
   const [showExerciseForm, setShowExerciseForm] = useState<boolean>(false)
   const [exerciseFormState, setExerciseFormState] = useState({
     name: '',
@@ -110,6 +116,13 @@ export default function WorkoutDashboard() {
     restInterval: 60
   })
   const [savingExercise, setSavingExercise] = useState<boolean>(false)
+
+  // Estados para Modal de Vídeo de Execução e AI Coach Chatbot
+  const [activeVideoExercise, setActiveVideoExercise] = useState<Exercise | null>(null)
+  const [chatOpen, setChatOpen] = useState<boolean>(false)
+  const [chatMessages, setChatMessages] = useState<Array<{ role: 'user' | 'model'; text: string }>>([])
+  const [chatInput, setChatInput] = useState<string>('')
+  const [chatLoading, setChatLoading] = useState<boolean>(false)
 
   // Estados de UI
   const [loading, setLoading] = useState(true)
@@ -192,6 +205,45 @@ export default function WorkoutDashboard() {
 
     loadUserData()
   }, [selectedUser])
+
+  // Inicializa o chat com uma mensagem de boas-vindas do coach personalizada
+  useEffect(() => {
+    if (selectedUser) {
+      const isGustavo = selectedUser.name.toLowerCase().includes('gustavo')
+      const msg = isGustavo
+        ? `Olá, Gustavo! Sou o seu AI Coach do SmartLift. Estou pronto para ajudar com o seu treino. Lembre-se que por conta das hérnias inguinal e umbilical, devemos evitar compressão abdominal forte e manobra de Valsalva. O que gostaria de perguntar hoje?`
+        : `Olá, Michele! Sou o seu AI Coach do SmartLift. Como posso ajudar você hoje? Lembre-se que devido ao seu problema no ombro, devemos proteger as articulações em pegadas abduzidas e amplitude excessiva. Qual a sua dúvida?`
+      
+      setChatMessages([{ role: 'model', text: msg }])
+    }
+  }, [selectedUser])
+
+  // Função para enviar mensagem no chat do AI Coach
+  const handleSendChatMessage = async (customMessage?: string) => {
+    const textToSend = customMessage || chatInput
+    if (!textToSend.trim() || !selectedUser) return
+
+    // Adiciona a mensagem do usuário na tela
+    const updatedMessages = [...chatMessages, { role: 'user' as const, text: textToSend }]
+    setChatMessages(updatedMessages)
+    setChatInput('')
+    setChatLoading(true)
+
+    // Formata o histórico para o formato que a API do Gemini consome
+    const apiHistory = chatMessages.map(msg => ({
+      role: msg.role,
+      parts: msg.text
+    }))
+
+    const result = await askAICoach(selectedUser.id, textToSend, apiHistory)
+    
+    if (result.success && result.reply) {
+      setChatMessages(prev => [...prev, { role: 'model' as const, text: result.reply }])
+    } else {
+      setChatMessages(prev => [...prev, { role: 'model' as const, text: 'Desculpe, tive um problema de comunicação com meus servidores. Pode tentar novamente?' }])
+    }
+    setChatLoading(false)
+  }
 
   // Registrar Service Worker para PWA (Progressive Web App)
   useEffect(() => {
@@ -411,6 +463,77 @@ export default function WorkoutDashboard() {
       restInterval: 60
     })
     setShowExerciseForm(true)
+  }
+
+  // Manipuladores de Arrastar e Soltar (Drag & Drop)
+  const handleDragStart = (e: React.DragEvent, id: string) => {
+    setDraggedExerciseId(id)
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', id)
+  }
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault()
+    setDragOverIndex(index)
+  }
+
+  const handleDrop = async (e: React.DragEvent, targetIndex: number) => {
+    e.preventDefault()
+    if (!selectedAdminWorkout || !draggedExerciseId) return
+
+    const sorted = getSortedExercises(selectedAdminWorkout)
+    const draggedIndex = sorted.findIndex(ex => ex.id === draggedExerciseId)
+    if (draggedIndex === -1 || draggedIndex === targetIndex) return
+
+    const newSorted = [...sorted]
+    const [removed] = newSorted.splice(draggedIndex, 1)
+    newSorted.splice(targetIndex, 0, removed)
+
+    const newOrderIds = newSorted.map(ex => ex.id)
+    
+    // Atualizar localmente
+    setWorkouts(prev => prev.map(w => w.id === selectedAdminWorkout.id ? {
+      ...w,
+      exerciseOrder: newOrderIds.join(',')
+    } : w))
+    setSelectedAdminWorkout(prev => prev ? {
+      ...prev,
+      exerciseOrder: newOrderIds.join(',')
+    } : null)
+
+    // Atualizar no banco Neon
+    await updateWorkoutExerciseOrder(selectedAdminWorkout.id, newOrderIds)
+  }
+
+  const handleDragEnd = () => {
+    setDraggedExerciseId(null)
+    setDragOverIndex(null)
+  }
+
+  const handleMoveExercise = async (index: number, direction: 'up' | 'down') => {
+    if (!selectedAdminWorkout) return
+    const sorted = getSortedExercises(selectedAdminWorkout)
+    const targetIndex = direction === 'up' ? index - 1 : index + 1
+    
+    if (targetIndex < 0 || targetIndex >= sorted.length) return
+    
+    const newSorted = [...sorted]
+    const temp = newSorted[index]
+    newSorted[index] = newSorted[targetIndex]
+    newSorted[targetIndex] = temp
+    
+    const newOrderIds = newSorted.map(ex => ex.id)
+    
+    setWorkouts(prev => prev.map(w => w.id === selectedAdminWorkout.id ? {
+      ...w,
+      exerciseOrder: newOrderIds.join(',')
+    } : w))
+    setSelectedAdminWorkout(prev => prev ? {
+      ...prev,
+      exerciseOrder: newOrderIds.join(',')
+    } : null)
+    
+    await updateWorkoutExerciseOrder(selectedAdminWorkout.id, newOrderIds)
   }
 
   // Inicializar inputs de carga e reps
@@ -715,6 +838,22 @@ export default function WorkoutDashboard() {
     if (sessions.length === 0) return 'Nenhum treino no histórico'
     const last = sessions[0]
     return `Último feito: ${last.workoutName} (${last.date})`
+  }
+
+  const getSortedExercises = (workout: Workout | null): Exercise[] => {
+    if (!workout) return []
+    if (!workout.exerciseOrder) return workout.exercises
+    
+    const orderArray = workout.exerciseOrder.split(',')
+    return [...workout.exercises].sort((a, b) => {
+      const idxA = orderArray.indexOf(a.id)
+      const idxB = orderArray.indexOf(b.id)
+      
+      const posA = idxA === -1 ? 999 : idxA
+      const posB = idxB === -1 ? 999 : idxB
+      
+      return posA - posB
+    })
   }
 
   const nextWorkoutSuggestion = getNextWorkout()
@@ -1024,7 +1163,7 @@ export default function WorkoutDashboard() {
 
                 {/* Lista de Exercícios (Formatada como Accordions do Print) */}
                 <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
-                  {activeWorkout.exercises.map((ex, index) => {
+                  {getSortedExercises(activeWorkout).map((ex, index) => {
                     const isExpanded = expandedExerciseId === ex.id
                     const lastLog = lastLogs[ex.id]
                     
@@ -1233,21 +1372,21 @@ export default function WorkoutDashboard() {
                             </button>
 
                             {/* Ações Inferiores (Regulagem e Exercícios Similares do Print) */}
-                            <div className="grid grid-cols-2 gap-2 pt-2">
+                            <div className="grid grid-cols-3 gap-2 pt-2">
                               {/* Regulagem */}
                               <button
                                 onClick={() => {
                                   setExpandedSettings(prev => ({ ...prev, [ex.id]: !prev[ex.id] }))
                                   setExpandedAlternatives(prev => ({ ...prev, [ex.id]: false }))
                                 }}
-                                className={`flex flex-col items-center justify-center p-3 rounded-xl border transition-all text-center ${
+                                className={`flex flex-col items-center justify-center p-2.5 rounded-xl border transition-all text-center ${
                                   expandedSettings[ex.id]
                                     ? 'bg-indigo-500/10 border-indigo-500/50 text-indigo-300 shadow-md shadow-indigo-500/10'
                                     : 'bg-zinc-950 border-zinc-900 text-zinc-400 hover:text-zinc-200'
                                 }`}
                               >
-                                <Sliders className="w-4 h-4 mb-1" />
-                                <span className="text-[10px] font-bold">Regulagem</span>
+                                <Sliders className="w-3.5 h-3.5 mb-1" />
+                                <span className="text-[9px] font-bold">Regulagem</span>
                               </button>
 
                               {/* Exercícios Similares */}
@@ -1256,14 +1395,24 @@ export default function WorkoutDashboard() {
                                   setExpandedAlternatives(prev => ({ ...prev, [ex.id]: !prev[ex.id] }))
                                   setExpandedSettings(prev => ({ ...prev, [ex.id]: false }))
                                 }}
-                                className={`flex flex-col items-center justify-center p-3 rounded-xl border transition-all text-center ${
+                                className={`flex flex-col items-center justify-center p-2.5 rounded-xl border transition-all text-center ${
                                   expandedAlternatives[ex.id]
                                     ? 'bg-amber-500/10 border-amber-500/50 text-amber-300 shadow-md shadow-amber-500/10'
                                     : 'bg-zinc-950 border-zinc-900 text-zinc-400 hover:text-zinc-200'
                                 }`}
                               >
-                                <Info className="w-4 h-4 mb-1" />
-                                <span className="text-[10px] font-bold">Substitutos</span>
+                                <Info className="w-3.5 h-3.5 mb-1" />
+                                <span className="text-[9px] font-bold">Substitutos</span>
+                              </button>
+
+                              {/* Vídeo Demonstrativo */}
+                              <button
+                                type="button"
+                                onClick={() => setActiveVideoExercise(ex)}
+                                className="flex flex-col items-center justify-center p-2.5 rounded-xl border border-zinc-900 bg-zinc-950 text-zinc-400 hover:text-zinc-200 hover:border-zinc-800 transition-all text-center"
+                              >
+                                <Play className="w-3.5 h-3.5 mb-1 text-rose-500 fill-rose-500/10" />
+                                <span className="text-[9px] font-bold">Ver Vídeo</span>
                               </button>
                             </div>
 
@@ -1648,44 +1797,83 @@ export default function WorkoutDashboard() {
                         <span className="text-zinc-500 font-bold">{selectedAdminWorkout?.exercises.length || 0} exercícios</span>
                       </div>
 
-                      {selectedAdminWorkout?.exercises.map((ex, index) => (
-                        <div 
-                          key={ex.id}
-                          className="glass-card rounded-xl p-3.5 flex items-center justify-between border border-zinc-900 hover:border-zinc-800 transition-all"
-                        >
-                          <div className="flex items-center gap-3 min-w-0">
-                            <span className="text-xs font-bold text-zinc-500 shrink-0 w-5">
-                              #{index + 1}
-                            </span>
-                            <div className="min-w-0">
-                              <span className="text-[9px] font-bold text-indigo-400 uppercase tracking-wider block">
-                                {ex.muscleGroup}
-                              </span>
-                              <span className="text-xs font-bold text-white block truncate">
-                                {ex.name}
-                              </span>
+                      {getSortedExercises(selectedAdminWorkout).map((ex, index) => {
+                        const isDragging = draggedExerciseId === ex.id
+                        const isOver = dragOverIndex === index
+                        const isFirst = index === 0
+                        const isLast = index === (selectedAdminWorkout?.exercises.length || 0) - 1
+
+                        return (
+                          <div 
+                            key={ex.id}
+                            draggable="true"
+                            onDragStart={(e) => handleDragStart(e, ex.id)}
+                            onDragOver={(e) => handleDragOver(e, index)}
+                            onDrop={(e) => handleDrop(e, index)}
+                            onDragEnd={handleDragEnd}
+                            className={`glass-card rounded-xl p-3.5 flex items-center justify-between border transition-all ${
+                              isDragging ? 'opacity-30 border-dashed border-indigo-500 bg-indigo-500/5' : 
+                              isOver ? 'border-indigo-400 bg-indigo-500/10 scale-[1.01]' : 'border-zinc-900 hover:border-zinc-800'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              {/* Alça de arrastar para desktop */}
+                              <div className="cursor-grab active:cursor-grabbing text-zinc-600 hover:text-zinc-400 p-0.5 shrink-0 hidden sm:block">
+                                <GripVertical className="w-4 h-4" />
+                              </div>
+
+                              {/* Setas subir/descer para acessibilidade e mobile */}
+                              <div className="flex flex-col shrink-0 gap-0.5 mr-1 select-none">
+                                <button
+                                  type="button"
+                                  disabled={isFirst}
+                                  onClick={() => handleMoveExercise(index, 'up')}
+                                  className="text-zinc-500 hover:text-white disabled:opacity-20 text-[8px] px-1 py-0.5 bg-zinc-950 border border-zinc-900 rounded font-bold"
+                                  title="Subir"
+                                >
+                                  ▲
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={isLast}
+                                  onClick={() => handleMoveExercise(index, 'down')}
+                                  className="text-zinc-500 hover:text-white disabled:opacity-20 text-[8px] px-1 py-0.5 bg-zinc-950 border border-zinc-900 rounded font-bold"
+                                  title="Descer"
+                                >
+                                  ▼
+                                </button>
+                              </div>
+
+                              <div className="min-w-0">
+                                <span className="text-[9px] font-bold text-indigo-400 uppercase tracking-wider block">
+                                  {ex.muscleGroup}
+                                </span>
+                                <span className="text-xs font-bold text-white block truncate">
+                                  {ex.name}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Ações (Editar e Deletar) */}
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                onClick={() => startEditExercise(ex)}
+                                className="p-2 rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white transition-all"
+                                title="Editar Exercício"
+                              >
+                                <Sliders className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteExercise(ex.id)}
+                                className="p-2 rounded-lg bg-red-950/20 border border-red-900/20 text-red-400 hover:bg-red-950/40 transition-all"
+                                title="Excluir Exercício"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
                             </div>
                           </div>
-
-                          {/* Ações (Editar e Deletar) */}
-                          <div className="flex items-center gap-1 shrink-0">
-                            <button
-                              onClick={() => startEditExercise(ex)}
-                              className="p-2 rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white transition-all"
-                              title="Editar Exercício"
-                            >
-                              <Sliders className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteExercise(ex.id)}
-                              className="p-2 rounded-lg bg-red-950/20 border border-red-900/20 text-red-400 hover:bg-red-950/40 transition-all"
-                              title="Excluir Exercício"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
+                        )
+                      })}
 
                       {selectedAdminWorkout?.exercises.length === 0 && (
                         <div className="text-center py-12 text-zinc-600 text-xs italic">
@@ -1759,8 +1947,181 @@ export default function WorkoutDashboard() {
           >
             <ProfileIcon className="w-5 h-5 mb-0.5" />
             <span className="text-[9px] font-bold">Perfil</span>
-          </button>
+                  </button>
         </nav>
+
+        {/* Botão Flutuante do AI Coach */}
+        {!chatOpen && (
+          <button
+            onClick={() => setChatOpen(true)}
+            className={`absolute bottom-20 right-4 z-30 w-12 h-12 rounded-full flex items-center justify-center shadow-lg transition-transform hover:scale-105 active:scale-95 ${
+              selectedUser?.name.toLowerCase().includes('michele')
+                ? 'bg-rose-500 text-white shadow-rose-500/20 shadow-lg'
+                : 'bg-indigo-600 text-white shadow-indigo-600/20 shadow-lg'
+            }`}
+            title="Perguntar ao AI Coach"
+          >
+            <Sparkles className="w-5 h-5 animate-pulse" />
+          </button>
+        )}
+
+        {/* CHAT DRAWER DO AI COACH */}
+        {chatOpen && (
+          <div className="absolute inset-x-0 bottom-0 top-16 bg-[#09090b] border-t border-zinc-850 z-40 flex flex-col rounded-t-3xl shadow-2xl overflow-hidden animate-slide-up">
+            {/* Header do Chat */}
+            <div className="px-5 py-4 bg-zinc-950 border-b border-zinc-900 flex justify-between items-center shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                  selectedUser?.name.toLowerCase().includes('michele') ? 'bg-rose-500/10 text-rose-400' : 'bg-indigo-600/10 text-indigo-400'
+                }`}>
+                  <Sparkles className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-extrabold text-white">SmartLift AI Coach</h3>
+                  <p className="text-[9px] text-zinc-500">
+                    {selectedUser?.name.toLowerCase().includes('gustavo') 
+                      ? 'Adaptado para Gustavo (Hérnias)' 
+                      : 'Adaptado para Michele (Ombro)'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setChatOpen(false)}
+                className="text-zinc-500 hover:text-white text-xs font-bold py-1 px-3 bg-zinc-900 border border-zinc-800 rounded-lg"
+              >
+                Fechar
+              </button>
+            </div>
+
+            {/* Histórico de Mensagens */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-3.5 flex flex-col scrollbar-thin">
+              {chatMessages.map((msg, index) => (
+                <div 
+                  key={index}
+                  className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed ${
+                    msg.role === 'user'
+                      ? 'self-end bg-indigo-600 text-white rounded-br-none'
+                      : 'self-start bg-zinc-900 text-zinc-200 rounded-bl-none border border-zinc-800/60'
+                  }`}
+                >
+                  {msg.text.split('\n').map((paragraph, pIdx) => (
+                    <p key={pIdx} className={pIdx > 0 ? 'mt-1.5' : ''}>{paragraph}</p>
+                  ))}
+                </div>
+              ))}
+              
+              {chatLoading && (
+                <div className="self-start bg-zinc-900 text-zinc-400 rounded-2xl rounded-bl-none border border-zinc-800/60 px-3.5 py-2.5 text-xs flex items-center gap-2">
+                  <div className="w-3.5 h-3.5 border-2 border-zinc-450 border-t-transparent rounded-full animate-spin"></div>
+                  <span>Digitando...</span>
+                </div>
+              )}
+            </div>
+
+            {/* Sugestões rápidas de perguntas */}
+            <div className="px-4 py-2 border-t border-zinc-900 bg-zinc-950 flex gap-2 overflow-x-auto shrink-0 scrollbar-none">
+              {selectedUser?.name.toLowerCase().includes('gustavo') ? (
+                <>
+                  <button
+                    onClick={() => handleSendChatMessage("Quais exercícios substituir por causa de hérnia?")}
+                    className="bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-white px-3 py-1.5 rounded-full text-[10px] font-bold shrink-0 transition-all"
+                  >
+                    🔄 Substitutos para hérnia
+                  </button>
+                  <button
+                    onClick={() => handleSendChatMessage("Como evitar prender a respiração no agachamento?")}
+                    className="bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-white px-3 py-1.5 rounded-full text-[10px] font-bold shrink-0 transition-all"
+                  >
+                    🫁 Respiração segura
+                  </button>
+                  <button
+                    onClick={() => handleSendChatMessage("O que eu NUNCA devo fazer com hérnia umbilical?")}
+                    className="bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-white px-3 py-1.5 rounded-full text-[10px] font-bold shrink-0 transition-all"
+                  >
+                    ⚠️ O que evitar
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={() => handleSendChatMessage("Como proteger meus ombros durante o treino?")}
+                    className="bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-white px-3 py-1.5 rounded-full text-[10px] font-bold shrink-0 transition-all"
+                  >
+                    🛡️ Proteger ombros
+                  </button>
+                  <button
+                    onClick={() => handleSendChatMessage("Qual a melhor alternativa para remada alta no manguito?")}
+                    className="bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-white px-3 py-1.5 rounded-full text-[10px] font-bold shrink-0 transition-all"
+                  >
+                    🔄 Substitutos seguros
+                  </button>
+                  <button
+                    onClick={() => handleSendChatMessage("Porque usar pegada neutra protege o ombro?")}
+                    className="bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-white px-3 py-1.5 rounded-full text-[10px] font-bold shrink-0 transition-all"
+                  >
+                    ✊ Pegada neutra
+                  </button>
+                </>
+              )}
+            </div>
+
+            {/* Input de Mensagem */}
+            <div className="p-3 bg-zinc-950 border-t border-zinc-900 flex gap-2 shrink-0">
+              <input
+                type="text"
+                placeholder="Diga o que está ocupado ou tire dúvidas..."
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleSendChatMessage()}
+                disabled={chatLoading}
+                className="flex-1 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500 disabled:opacity-50"
+              />
+              <button
+                onClick={() => handleSendChatMessage()}
+                disabled={chatLoading || !chatInput.trim()}
+                className={`px-4 rounded-xl text-xs font-bold text-black transition-all disabled:opacity-30 ${
+                  selectedUser?.name.toLowerCase().includes('michele') ? 'bg-rose-450 text-white' : 'bg-lime-400 text-black'
+                }`}
+              >
+                Enviar
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL DE VÍDEO DE EXECUÇÃO */}
+        {activeVideoExercise && (
+          <div className="absolute inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="w-full max-w-sm bg-zinc-950 border border-zinc-800 rounded-3xl overflow-hidden shadow-2xl p-5 space-y-4">
+              <div className="flex justify-between items-center">
+                <div>
+                  <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest block">{activeVideoExercise.muscleGroup}</span>
+                  <h3 className="text-sm font-extrabold text-white leading-tight">{activeVideoExercise.name}</h3>
+                </div>
+                <button 
+                  onClick={() => setActiveVideoExercise(null)}
+                  className="text-zinc-500 hover:text-white text-xs font-bold bg-zinc-900 border border-zinc-800 w-8 h-8 rounded-full flex items-center justify-center"
+                >
+                  ✕
+                </button>
+              </div>
+              
+              {/* Embed YouTube Search Iframe */}
+              <div className="relative aspect-video w-full rounded-2xl overflow-hidden border border-zinc-800 bg-black">
+                <iframe 
+                  src={`https://www.youtube.com/embed?listType=search&list=${encodeURIComponent(activeVideoExercise.name + ' execucao correta musculacao')}`}
+                  className="absolute inset-0 w-full h-full"
+                  allowFullScreen
+                  title={activeVideoExercise.name}
+                ></iframe>
+              </div>
+
+              <p className="text-[10px] text-zinc-500 leading-relaxed text-center">
+                Assista aos vídeos demonstrativos do YouTube com a execução correta deste exercício.
+              </p>
+            </div>
+          </div>
+        )}
 
       </div>
     </div>

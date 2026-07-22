@@ -353,6 +353,7 @@ async function main() {
         exercises: {
           connect: exercisesA.map((ex) => ({ id: ex.id })),
         },
+        exerciseOrder: exercisesA.map((ex) => ex.id).join(','),
       },
     })
 
@@ -365,6 +366,7 @@ async function main() {
         exercises: {
           connect: exercisesB.map((ex) => ({ id: ex.id })),
         },
+        exerciseOrder: exercisesB.map((ex) => ex.id).join(','),
       },
     })
 
@@ -377,6 +379,7 @@ async function main() {
         exercises: {
           connect: exercisesC.map((ex) => ({ id: ex.id })),
         },
+        exerciseOrder: exercisesC.map((ex) => ex.id).join(','),
       },
     })
 
@@ -389,6 +392,7 @@ async function main() {
         exercises: {
           connect: exercisesD.map((ex) => ({ id: ex.id })),
         },
+        exerciseOrder: exercisesD.map((ex) => ex.id).join(','),
       },
     })
 
