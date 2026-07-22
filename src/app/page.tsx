@@ -187,6 +187,22 @@ export default function WorkoutDashboard() {
     loadUserData()
   }, [selectedUser])
 
+  // Registrar Service Worker para PWA (Progressive Web App)
+  useEffect(() => {
+    if ('serviceWorker' in navigator && window.location.hostname !== 'localhost') {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').then(
+          (registration) => {
+            console.log('ServiceWorker registrado com sucesso: ', registration.scope)
+          },
+          (err) => {
+            console.log('Falha ao registrar ServiceWorker: ', err)
+          }
+        )
+      })
+    }
+  }, [])
+
   // Sincronizar campo de validade quando o usuário selecionado mudar
   useEffect(() => {
     if (selectedUser?.workoutValidity) {

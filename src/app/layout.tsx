@@ -15,6 +15,12 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "SmartLift - Treino Inteligente",
   description: "Acompanhamento inteligente de treinos na academia para Gustavo e Michele. Foco em segurança articular e aparelhos alternativos.",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "SmartLift",
+  },
 };
 
 export default function RootLayout({
