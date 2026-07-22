@@ -41,37 +41,31 @@ Desenvolvido especialmente para o uso pessoal de **Gustavo** e **Michele**, o Sm
 
 ## 🚀 Como rodar localmente
 
-### 1. Clonar o repositório
-```bash
-git clone https://github.com/guuhferiani/treino.git
-cd treino
-```
-
-### 2. Instalar dependências
+### 1. Instalar dependências
 ```bash
 npm install
 ```
 
-### 3. Configurar variáveis de ambiente
+### 2. Configurar variáveis de ambiente
 Crie um arquivo `.env` na raiz do projeto e configure suas conexões com o Neon:
 ```env
 DATABASE_URL="postgresql://usuario:senha@ep-nome-projeto.pooler.tech/neondb?sslmode=require"
 DIRECT_URL="postgresql://usuario:senha@ep-nome-projeto.tech/neondb?sslmode=require"
 ```
 
-### 4. Rodar as migrações do banco
+### 3. Rodar as migrações do banco
 ```bash
 npx prisma migrate dev
 npx prisma generate
 ```
 
-### 5. Alimentar o banco (Seeding)
+### 4. Alimentar o banco (Seeding)
 Cadastra os usuários Gustavo/Michele e a ficha ABCD inicial com 34 exercícios completos:
 ```bash
 npx prisma db seed
 ```
 
-### 6. Executar o servidor de desenvolvimento
+### 5. Executar o servidor de desenvolvimento
 ```bash
 npm run dev
 ```
