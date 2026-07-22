@@ -117,12 +117,10 @@ export default function WorkoutDashboard() {
   })
   const [savingExercise, setSavingExercise] = useState<boolean>(false)
 
-  // Estados para Modal de Vídeo de Execução e AI Coach Chatbot
+  // Estados para Modal de Vídeo de Execução e Substituições por Aparelho Ocupado
   const [activeVideoExercise, setActiveVideoExercise] = useState<Exercise | null>(null)
-  const [chatOpen, setChatOpen] = useState<boolean>(false)
-  const [chatMessages, setChatMessages] = useState<Array<{ role: 'user' | 'model'; text: string }>>([])
-  const [chatInput, setChatInput] = useState<string>('')
-  const [chatLoading, setChatLoading] = useState<boolean>(false)
+  const [isBusy, setIsBusy] = useState<Record<string, boolean>>({})
+  const [sessionSubstitutes, setSessionSubstitutes] = useState<Record<string, string>>({})
 
   // Estados de UI
   const [loading, setLoading] = useState(true)
@@ -206,43 +204,123 @@ export default function WorkoutDashboard() {
     loadUserData()
   }, [selectedUser])
 
-  // Inicializa o chat com uma mensagem de boas-vindas do coach personalizada
-  useEffect(() => {
-    if (selectedUser) {
-      const isGustavo = selectedUser.name.toLowerCase().includes('gustavo')
-      const msg = isGustavo
-        ? `Olá, Gustavo! Sou o seu AI Coach do SmartLift. Estou pronto para ajudar com o seu treino. Lembre-se que por conta das hérnias inguinal e umbilical, devemos evitar compressão abdominal forte e manobra de Valsalva. O que gostaria de perguntar hoje?`
-        : `Olá, Michele! Sou o seu AI Coach do SmartLift. Como posso ajudar você hoje? Lembre-se que devido ao seu problema no ombro, devemos proteger as articulações em pegadas abduzidas e amplitude excessiva. Qual a sua dúvida?`
-      
-      setChatMessages([{ role: 'model', text: msg }])
-    }
-  }, [selectedUser])
-
-  // Função para enviar mensagem no chat do AI Coach
-  const handleSendChatMessage = async (customMessage?: string) => {
-    const textToSend = customMessage || chatInput
-    if (!textToSend.trim() || !selectedUser) return
-
-    // Adiciona a mensagem do usuário na tela
-    const updatedMessages = [...chatMessages, { role: 'user' as const, text: textToSend }]
-    setChatMessages(updatedMessages)
-    setChatInput('')
-    setChatLoading(true)
-
-    // Formata o histórico para o formato que a API do Gemini consome
-    const apiHistory = chatMessages.map(msg => ({
-      role: msg.role,
-      parts: msg.text
+  // Função auxiliar para aplicar a recomendação de substituto temporariamente nesta sessão
+  const handleApplySubstitute = (exerciseId: string, substituteName: string) => {
+    setSessionSubstitutes(prev => ({
+      ...prev,
+      [exerciseId]: substituteName
     }))
+    alert(`Exercício substituído por "${substituteName}" para este treino! 💪`)
+  }
 
-    const result = await askAICoach(selectedUser.id, textToSend, apiHistory)
-    
-    if (result.success && result.reply) {
-      setChatMessages(prev => [...prev, { role: 'model' as const, text: result.reply }])
+  // Obter o substituto recomendado com base nas limitações de Hérnia (Gustavo) ou Ombro (Michele)
+  const getSmartSubstitute = (exercise: Exercise, user: User | null): { name: string; reason: string } => {
+    if (!user) return { name: 'Exercício Alternativo', reason: '' }
+    const name = exercise.name.toLowerCase()
+    const isGustavo = user.name.toLowerCase().includes('gustavo')
+
+    if (isGustavo) {
+      if (name.includes('supino inclinado com halteres')) {
+        return {
+          name: 'Supino Inclinado na Máquina Articulada',
+          reason: 'A máquina guia o movimento, reduzindo a necessidade de estabilização do core e diminuindo a pressão intra-abdominal em relação aos halteres livres.'
+        }
+      }
+      if (name.includes('supino reto na máquina') || name.includes('supino reto articulado')) {
+        return {
+          name: 'Crossover Polia Média',
+          reason: 'O trabalho em polias permite manter o tronco ereto e estável com menor pressão na parede abdominal inferior.'
+        }
+      }
+      if (name.includes('pec deck') || name.includes('voador')) {
+        return {
+          name: 'Crucifixo Inclinado com Cabos',
+          reason: 'A tração dos cabos apoia o tronco e distribui a carga sem forçar a região inguinal/umbilical.'
+        }
+      }
+      if (name.includes('desenvolvimento')) {
+        return {
+          name: 'Elevação Lateral Sentado com Halteres',
+          reason: 'Desenvolvimentos verticais aumentam muito a pressão interna no abdômen. A elevação lateral isola os ombros sem sobrecarregar a região.'
+        }
+      }
+      if (name.includes('elevação lateral')) {
+        return {
+          name: 'Elevação Lateral no Cabo (Polia Baixa)',
+          reason: 'A tensão contínua dos cabos reduz o pico de esforço muscular inicial e a necessidade de prender a respiração (Valsalva).'
+        }
+      }
+      if (name.includes('puxada alta')) {
+        return {
+          name: 'Remada Sentada na Máquina (Apoio no Peito)',
+          reason: 'O suporte frontal no peito fornece estabilidade total, eliminando a pressão sobre as hérnias umbilical e inguinal.'
+        }
+      }
+      if (name.includes('remada baixa') || name.includes('remada articulada')) {
+        return {
+          name: 'Remada Unilateral com Halter (Apoiado no Banco)',
+          reason: 'Apoiar o joelho e a mão no banco divide o peso corporal perfeitamente e reduz a pressão interna sob esforço.'
+        }
+      }
+      if (name.includes('agachamento')) {
+        return {
+          name: 'Cadeira Extensora (Séries Altas)',
+          reason: 'Isola e fortalece as coxas sem qualquer compressão na coluna ou na parede do abdômen. Risco zero para hérnias.'
+        }
+      }
+      if (name.includes('leg press')) {
+        return {
+          name: 'Agachamento Goblet no Banco (Carga Leve)',
+          reason: 'O banco limita a profundidade do quadril, evitando a retroversão da pelve e protegendo os canais da hérnia.'
+        }
+      }
     } else {
-      setChatMessages(prev => [...prev, { role: 'model' as const, text: 'Desculpe, tive um problema de comunicação com meus servidores. Pode tentar novamente?' }])
+      // Michele (Ombro / Manguito)
+      if (name.includes('supino inclinado')) {
+        return {
+          name: 'Supino Reto com Pegada Neutra (Halteres)',
+          reason: 'A pegada neutra (palmas voltadas para dentro) alivia a pressão nos tendões do manguito rotador e no espaço subacromial.'
+        }
+      }
+      if (name.includes('supino reto')) {
+        return {
+          name: 'Pec Deck (Limitando Amplitude)',
+          reason: 'Permite controlar o movimento para que o cotovelo não ultrapasse a linha das costas, evitando hiperextensão do ombro.'
+        }
+      }
+      if (name.includes('desenvolvimento')) {
+        return {
+          name: 'Elevação Lateral no Cabo (Plano Escapular)',
+          reason: 'O plano escapular (inclinar o movimento 30° para a frente) diminui o atrito ósseo e a dor no ombro comparado ao desenvolvimento vertical.'
+        }
+      }
+      if (name.includes('elevação lateral')) {
+        return {
+          name: 'Elevação Lateral com Halteres (Tronco levemente inclinado à frente)',
+          reason: 'Impede o impacto ósseo no ombro e protege as articulações durante a elevação.'
+        }
+      }
+      if (name.includes('puxada alta')) {
+        return {
+          name: 'Remada Sentada (Triângulo - Pegada Neutra)',
+          reason: 'Puxar horizontalmente com pegada neutra e mãos próximas é muito mais seguro e confortável para os ombros.'
+        }
+      }
+      if (name.includes('remada baixa') || name.includes('remada articulada')) {
+        return {
+          name: 'Remada Unilateral no Cabo',
+          reason: 'O cabo livre permite ajustar o ângulo ideal da puxada de acordo com o conforto articular individual do ombro.'
+        }
+      }
     }
-    setChatLoading(false)
+
+    // Fallback genérico inteligente se não estiver pré-programado
+    return {
+      name: exercise.alternatives ? exercise.alternatives.split(',')[0].trim() : 'Exercício Alternativo',
+      reason: isGustavo
+        ? 'Exercício selecionado por IA para reduzir o estresse intra-abdominal e proteger as hérnias umbilical/inguinal.'
+        : 'Exercício selecionado por IA para proteger a articulação do ombro e evitar sobrecarga de impacto.'
+    }
   }
 
   // Registrar Service Worker para PWA (Progressive Web App)
@@ -650,6 +728,8 @@ export default function WorkoutDashboard() {
       setActiveWorkout(null)
       setExpandedExerciseId(null)
       setTimerSeconds(null)
+      setIsBusy({})
+      setSessionSubstitutes({})
       alert('Treino concluído! Bom trabalho! 💪')
     }
   }
@@ -1166,6 +1246,8 @@ export default function WorkoutDashboard() {
                   {getSortedExercises(activeWorkout).map((ex, index) => {
                     const isExpanded = expandedExerciseId === ex.id
                     const lastLog = lastLogs[ex.id]
+                    const isSubstituted = !!sessionSubstitutes[ex.id]
+                    const displayName = sessionSubstitutes[ex.id] || ex.name
                     
                     // Série ativa para este exercício (1 a 4)
                     const activeSet = activeSets[ex.id] || 1
@@ -1204,7 +1286,14 @@ export default function WorkoutDashboard() {
                                   {todayLogs.filter(l => l.exerciseId === ex.id).length}/4 séries
                                 </span>
                               </div>
-                              <h3 className="text-sm font-bold text-white mt-1 leading-tight">{ex.name}</h3>
+                              <h3 className="text-sm font-bold text-white mt-1 leading-tight flex items-center gap-1.5 flex-wrap">
+                                <span>{displayName}</span>
+                                {isSubstituted && (
+                                  <span className="text-[8px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/20 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider shrink-0 select-none">
+                                    Substituto
+                                  </span>
+                                )}
+                              </h3>
                             </div>
                           </div>
                           
@@ -1371,13 +1460,13 @@ export default function WorkoutDashboard() {
                               Concluir Exercício & Ir para o Próximo
                             </button>
 
-                            {/* Ações Inferiores (Regulagem e Exercícios Similares do Print) */}
+                            {/* Ações Inferiores (Regulagem, Ocupado e Vídeo) */}
                             <div className="grid grid-cols-3 gap-2 pt-2">
                               {/* Regulagem */}
                               <button
+                                type="button"
                                 onClick={() => {
                                   setExpandedSettings(prev => ({ ...prev, [ex.id]: !prev[ex.id] }))
-                                  setExpandedAlternatives(prev => ({ ...prev, [ex.id]: false }))
                                 }}
                                 className={`flex flex-col items-center justify-center p-2.5 rounded-xl border transition-all text-center ${
                                   expandedSettings[ex.id]
@@ -1389,20 +1478,21 @@ export default function WorkoutDashboard() {
                                 <span className="text-[9px] font-bold">Regulagem</span>
                               </button>
 
-                              {/* Exercícios Similares */}
+                              {/* Ocupado? */}
                               <button
+                                type="button"
                                 onClick={() => {
-                                  setExpandedAlternatives(prev => ({ ...prev, [ex.id]: !prev[ex.id] }))
+                                  setIsBusy(prev => ({ ...prev, [ex.id]: !prev[ex.id] }))
                                   setExpandedSettings(prev => ({ ...prev, [ex.id]: false }))
                                 }}
                                 className={`flex flex-col items-center justify-center p-2.5 rounded-xl border transition-all text-center ${
-                                  expandedAlternatives[ex.id]
+                                  isBusy[ex.id]
                                     ? 'bg-amber-500/10 border-amber-500/50 text-amber-300 shadow-md shadow-amber-500/10'
                                     : 'bg-zinc-950 border-zinc-900 text-zinc-400 hover:text-zinc-200'
                                 }`}
                               >
-                                <Info className="w-3.5 h-3.5 mb-1" />
-                                <span className="text-[9px] font-bold">Substitutos</span>
+                                <AlertTriangle className={`w-3.5 h-3.5 mb-1 ${isBusy[ex.id] ? 'text-amber-400' : 'text-zinc-500'}`} />
+                                <span className="text-[9px] font-bold">Ocupado?</span>
                               </button>
 
                               {/* Vídeo Demonstrativo */}
@@ -1429,16 +1519,42 @@ export default function WorkoutDashboard() {
                               </div>
                             )}
 
-                            {/* Painel de Exercícios Similares */}
-                            {expandedAlternatives[ex.id] && (
-                              <div className="bg-amber-950/20 border border-amber-500/20 rounded-xl p-3 text-xs animate-slide-down space-y-1">
-                                <div className="text-amber-400 font-bold flex items-center gap-1.5">
-                                  <Info className="w-3.5 h-3.5" />
-                                  <span>Aparelho Ocupado? Use Alternativo:</span>
+                            {/* Painel de Recomendação de Substituto Inteligente (Se estiver Marcado como Ocupado) */}
+                            {isBusy[ex.id] && (
+                              <div className="bg-indigo-950/20 border border-indigo-500/20 rounded-xl p-3 text-xs animate-slide-down space-y-3">
+                                <div className="flex justify-between items-start">
+                                  <div>
+                                    <span className="text-[8px] bg-indigo-500/35 text-indigo-300 border border-indigo-500/20 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider block w-max select-none">
+                                      Recomendação de Substituto (IA)
+                                    </span>
+                                    <h4 className="text-xs font-extrabold text-white mt-1.5 leading-tight">
+                                      {getSmartSubstitute(ex, selectedUser).name}
+                                    </h4>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleApplySubstitute(ex.id, getSmartSubstitute(ex, selectedUser).name)}
+                                    className="text-[9px] bg-lime-400 hover:bg-lime-300 text-black px-2 py-1 rounded-lg font-bold transition-all shrink-0 ml-2 shadow-sm"
+                                  >
+                                    Substituir Hoje
+                                  </button>
                                 </div>
-                                <p className="text-zinc-200 font-medium pl-5 leading-relaxed">
-                                  {ex.alternatives}
+
+                                <p className="text-zinc-300 text-[10px] leading-relaxed">
+                                  <strong>Cinesiologia & Segurança:</strong> {getSmartSubstitute(ex, selectedUser).reason}
                                 </p>
+
+                                <button
+                                  type="button"
+                                  onClick={() => setActiveVideoExercise({
+                                    ...ex,
+                                    name: getSmartSubstitute(ex, selectedUser).name
+                                  })}
+                                  className="w-full py-2 bg-zinc-950 border border-zinc-900 rounded-lg text-[9px] font-bold text-zinc-300 hover:text-white flex items-center justify-center gap-1.5 transition-all"
+                                >
+                                  <Play className="w-3 h-3 text-rose-500 fill-rose-500/10" />
+                                  <span>Assistir Vídeo do Substituto</span>
+                                </button>
                               </div>
                             )}
 
@@ -1947,147 +2063,8 @@ export default function WorkoutDashboard() {
           >
             <ProfileIcon className="w-5 h-5 mb-0.5" />
             <span className="text-[9px] font-bold">Perfil</span>
-                  </button>
-        </nav>
-
-        {/* Botão Flutuante do AI Coach */}
-        {!chatOpen && (
-          <button
-            onClick={() => setChatOpen(true)}
-            className={`absolute bottom-20 right-4 z-30 w-12 h-12 rounded-full flex items-center justify-center shadow-lg transition-transform hover:scale-105 active:scale-95 ${
-              selectedUser?.name.toLowerCase().includes('michele')
-                ? 'bg-rose-500 text-white shadow-rose-500/20 shadow-lg'
-                : 'bg-indigo-600 text-white shadow-indigo-600/20 shadow-lg'
-            }`}
-            title="Perguntar ao AI Coach"
-          >
-            <Sparkles className="w-5 h-5 animate-pulse" />
           </button>
-        )}
-
-        {/* CHAT DRAWER DO AI COACH */}
-        {chatOpen && (
-          <div className="absolute inset-x-0 bottom-0 top-16 bg-[#09090b] border-t border-zinc-850 z-40 flex flex-col rounded-t-3xl shadow-2xl overflow-hidden animate-slide-up">
-            {/* Header do Chat */}
-            <div className="px-5 py-4 bg-zinc-950 border-b border-zinc-900 flex justify-between items-center shrink-0">
-              <div className="flex items-center gap-2.5">
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                  selectedUser?.name.toLowerCase().includes('michele') ? 'bg-rose-500/10 text-rose-400' : 'bg-indigo-600/10 text-indigo-400'
-                }`}>
-                  <Sparkles className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="text-xs font-extrabold text-white">SmartLift AI Coach</h3>
-                  <p className="text-[9px] text-zinc-500">
-                    {selectedUser?.name.toLowerCase().includes('gustavo') 
-                      ? 'Adaptado para Gustavo (Hérnias)' 
-                      : 'Adaptado para Michele (Ombro)'}
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setChatOpen(false)}
-                className="text-zinc-500 hover:text-white text-xs font-bold py-1 px-3 bg-zinc-900 border border-zinc-800 rounded-lg"
-              >
-                Fechar
-              </button>
-            </div>
-
-            {/* Histórico de Mensagens */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-3.5 flex flex-col scrollbar-thin">
-              {chatMessages.map((msg, index) => (
-                <div 
-                  key={index}
-                  className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed ${
-                    msg.role === 'user'
-                      ? 'self-end bg-indigo-600 text-white rounded-br-none'
-                      : 'self-start bg-zinc-900 text-zinc-200 rounded-bl-none border border-zinc-800/60'
-                  }`}
-                >
-                  {msg.text.split('\n').map((paragraph, pIdx) => (
-                    <p key={pIdx} className={pIdx > 0 ? 'mt-1.5' : ''}>{paragraph}</p>
-                  ))}
-                </div>
-              ))}
-              
-              {chatLoading && (
-                <div className="self-start bg-zinc-900 text-zinc-400 rounded-2xl rounded-bl-none border border-zinc-800/60 px-3.5 py-2.5 text-xs flex items-center gap-2">
-                  <div className="w-3.5 h-3.5 border-2 border-zinc-450 border-t-transparent rounded-full animate-spin"></div>
-                  <span>Digitando...</span>
-                </div>
-              )}
-            </div>
-
-            {/* Sugestões rápidas de perguntas */}
-            <div className="px-4 py-2 border-t border-zinc-900 bg-zinc-950 flex gap-2 overflow-x-auto shrink-0 scrollbar-none">
-              {selectedUser?.name.toLowerCase().includes('gustavo') ? (
-                <>
-                  <button
-                    onClick={() => handleSendChatMessage("Quais exercícios substituir por causa de hérnia?")}
-                    className="bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-white px-3 py-1.5 rounded-full text-[10px] font-bold shrink-0 transition-all"
-                  >
-                    🔄 Substitutos para hérnia
-                  </button>
-                  <button
-                    onClick={() => handleSendChatMessage("Como evitar prender a respiração no agachamento?")}
-                    className="bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-white px-3 py-1.5 rounded-full text-[10px] font-bold shrink-0 transition-all"
-                  >
-                    🫁 Respiração segura
-                  </button>
-                  <button
-                    onClick={() => handleSendChatMessage("O que eu NUNCA devo fazer com hérnia umbilical?")}
-                    className="bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-white px-3 py-1.5 rounded-full text-[10px] font-bold shrink-0 transition-all"
-                  >
-                    ⚠️ O que evitar
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    onClick={() => handleSendChatMessage("Como proteger meus ombros durante o treino?")}
-                    className="bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-white px-3 py-1.5 rounded-full text-[10px] font-bold shrink-0 transition-all"
-                  >
-                    🛡️ Proteger ombros
-                  </button>
-                  <button
-                    onClick={() => handleSendChatMessage("Qual a melhor alternativa para remada alta no manguito?")}
-                    className="bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-white px-3 py-1.5 rounded-full text-[10px] font-bold shrink-0 transition-all"
-                  >
-                    🔄 Substitutos seguros
-                  </button>
-                  <button
-                    onClick={() => handleSendChatMessage("Porque usar pegada neutra protege o ombro?")}
-                    className="bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-white px-3 py-1.5 rounded-full text-[10px] font-bold shrink-0 transition-all"
-                  >
-                    ✊ Pegada neutra
-                  </button>
-                </>
-              )}
-            </div>
-
-            {/* Input de Mensagem */}
-            <div className="p-3 bg-zinc-950 border-t border-zinc-900 flex gap-2 shrink-0">
-              <input
-                type="text"
-                placeholder="Diga o que está ocupado ou tire dúvidas..."
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSendChatMessage()}
-                disabled={chatLoading}
-                className="flex-1 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500 disabled:opacity-50"
-              />
-              <button
-                onClick={() => handleSendChatMessage()}
-                disabled={chatLoading || !chatInput.trim()}
-                className={`px-4 rounded-xl text-xs font-bold text-black transition-all disabled:opacity-30 ${
-                  selectedUser?.name.toLowerCase().includes('michele') ? 'bg-rose-450 text-white' : 'bg-lime-400 text-black'
-                }`}
-              >
-                Enviar
-              </button>
-            </div>
-          </div>
-        )}
+        </nav>
 
         {/* MODAL DE VÍDEO DE EXECUÇÃO */}
         {activeVideoExercise && (
