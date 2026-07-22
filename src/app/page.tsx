@@ -1173,9 +1173,9 @@ export default function WorkoutDashboard() {
                                   <Sliders className="w-2.5 h-2.5" />
                                   <span>Descanso</span>
                                 </span>
-                                <span className="text-sm font-bold text-white mt-2 block">
-                                  {ex.restInterval}s
-                                </span>
+                                 <span className="text-sm font-bold text-white mt-2 block">
+                                   {(ex.restInterval !== undefined && ex.restInterval !== null) ? ex.restInterval : 60}s
+                                 </span>
                               </div>
                             </div>
 
